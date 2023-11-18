@@ -27,7 +27,7 @@ The Rmarkdown files in the `Analysis/` directory provide a detailed walkthrough 
 
 ### Software Used
 
-- R version x.x.x (include additional libraries or packages used)
+- R version 4.0.3 (include additional libraries or packages used)
 
 ## Data Sharing and Archiving Policy
 
