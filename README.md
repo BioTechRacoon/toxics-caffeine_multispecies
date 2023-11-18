@@ -15,7 +15,7 @@ The data presented in this study are openly available in this repository. For de
 
 Please cite this dataset as follows:
 
-[dataset] Baracchini, C., Messager, L., Stocker, P., Leignel, V. Year. Multispecies Impact of Caffeine on Marine Invertebrates; Data repository; Persistent identifier (e.g., DOI).
+[dataset] Baracchini, C., Messager, L., Stocker, P., Leignel, V. 2023. Multispecies Impact of Caffeine on Marine Invertebrates; Data repository; Persistent identifier (e.g., DOI).
 
 ## Supplementary Material
 
@@ -40,11 +40,3 @@ The study adheres to ethical guidelines for research with marine invertebrates. 
 ## Contact
 
 For any queries related to the data or the study, please contact Vincent Leignel at [vincent.leignel@univ-lemans.fr].
-
-## Acknowledgments
-
-(Include any acknowledgments or funding information here.)
-
-## References
-
-(Include key references related to the dataset and study here.)
