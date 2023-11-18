@@ -1,0 +1,593 @@
+---
+title: "Caffeine Multispecices - Data Analysis"
+author: "Philippe STOCKER"
+date: "2023-09-19"
+output:
+  pdf_document: default
+  word_document: default
+geometry: left=1cm,right=1cm,top=1cm,bottom=1cm
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+# Packages used 
+```{r}
+# Load the required packages
+library(tidyverse)
+library(ggplot2)
+library(broom)
+library(knitr)
+library(readr)
+library(ggpubr)
+```
+
+```{=latex}
+\newpage
+```
+## Catalase (CAT.csv)
+
+```{r cat, echo=FALSE, warning=FALSE, show_col_types=FALSE}
+# Read the dataset
+data <- read_csv("CAT.csv")
+
+data_filtered <- data %>%
+  filter(species %in% c("Pachygrapsus_marmoratus", "Magallana_gigas", "Littorina_littorea", "Actinia_equina"))
+
+# Group values by batch, Species, tissues
+# Then, calculate the mean value and standard deviation for each group
+
+data_grouped <- data_filtered %>%
+  group_by(batch, species, tissues) %>%
+  summarise(mean_value = mean(CAT, na.rm = TRUE), 
+            sd_value = sd(CAT, na.rm = TRUE), 
+            .groups = "drop")
+
+# Normalize mean_value and sd_value between 0 and 1 grouped by species.
+data_grouped <- data_grouped %>%
+  group_by(species) %>%
+  mutate(normalized_value = (mean_value - min(mean_value, na.rm = TRUE)) / 
+           (max(mean_value, na.rm = TRUE) - min(mean_value, na.rm = TRUE)),
+         normalized_sd = (sd_value - min(sd_value, na.rm = TRUE)) / 
+           (max(sd_value, na.rm = TRUE) - min(sd_value, na.rm = TRUE))) %>%
+  ungroup()
+
+# Perform Welch's t-test for each concentration against the control
+test_results <- data %>%
+  filter(batch != "ctrl") %>%
+  group_by(batch, species, tissues) %>%
+  summarise(test_result = if(n() >= 2) list(tidy(t.test(CAT, 
+                                                        data[data$batch == "ctrl" & 
+                                                               data$species == species & 
+                                                               data$tissues == tissues, "CAT"], 
+                                                        alternative = "two.sided"))) else NA, 
+            .groups = "drop") %>%
+  unnest(test_result)
+
+# Join the datasets
+data_final <- left_join(data_grouped, test_results, by = c("batch", "species", "tissues"))
+
+# Function to convert p-values to asterisks
+p_to_star <- function(p) {
+  if (is.na(p)) return("")
+  if (p < .001) return("***")
+  if (p < .01) return("**")
+  if (p < .05) return("*")
+  return("ns")
+}
+
+# Apply the function to the p-values
+data_final <- data_final %>%
+  mutate(stars = sapply(p.value, p_to_star))
+
+# Count the number of observations for each combination of species, tissue, batch
+data_counts <- data %>%
+  group_by(species, tissues, batch) %>%
+  summarise(counts = n(), .groups = "drop")
+
+# Define the colors
+batch_colors <- c("ctrl" = "#C6B39B", "5ug/L" = "#8c6e47", "10ug/L" = "#4a3b28")
+data_final$batch <- factor(data_final$batch, levels=c("ctrl", "5ug/L", "10ug/L"))
+
+# New facet label names for species variable
+supp.labs <- c("Pachygrapsus marmoratus", "Magallana gigas", "Littorina littorea", "Actinia equina")
+names(supp.labs) <- c("Pachygrapsus_marmoratus", "Magallana_gigas", "Littorina_littorea", "Actinia_equina")
+
+# Create the named vector for corrected tissue names
+corrected_tissue_names <- c("gills" = "Gills", "digestive_tract" = "Digestive Tract", "full_body" = "Full Body")
+
+# Create the plot
+cat_plot <- ggplot(data_final, aes(x = batch, y = normalized_value, fill = factor(batch, levels=c("ctrl", "5ug/L", "10ug/L")))) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = normalized_value - normalized_sd, ymax = normalized_value + normalized_sd), width = 0.2, position = position_dodge(0.9)) +
+  geom_text(aes(y = normalized_value + normalized_sd + 0.1, label = stars), vjust = 0.5, position = position_dodge(0.9)) +
+  scale_fill_manual(values = batch_colors, name = "Batch", labels = c("Control", "5 µg/L", "10 µg/L")) +
+  scale_x_discrete(labels = c("ctrl" = "Control", "5ug/L" = "5 µg/L", "10ug/L" = "10 µg/L")) +
+  coord_cartesian(ylim = c(0, 2.1)) +
+  facet_grid(species ~ tissues, labeller = labeller(
+    species = as_labeller(supp.labs),
+    tissues = as_labeller(corrected_tissue_names)  # Use the corrected tissue names here
+  )) +
+  labs(fill = "Batch", y = "Normalized activity", x = "Caffeine concentration (µg)") + # Update the y-axis label here
+  theme_minimal() +
+  theme(axis.title = element_text(face = "plain"),
+        axis.text.y = element_text(face = "italic"),
+        strip.text = element_text(face = "italic"))
+
+
+# Select the necessary columns and print the table
+data_final %>%
+  filter(!(batch == "ctrl" & is.na(p.value))) %>%
+  select(species, batch, tissues, mean_value, sd_value, p.value) %>%
+  kable(format = "markdown")
+```
+
+
+
+
+```{r cat_plot, fig.width=10, fig.height=12}
+# Display the plot
+print(cat_plot)
+```
+
+```{=latex}
+\newpage
+```
+
+
+## Lipid Peroxidation (MDA.csv)
+
+```{r mda, echo=FALSE, warning=FALSE, show_col_types=FALSE}
+
+# Read the dataset
+data <- read_csv("MDA.csv")
+
+data_filtered <- data %>%
+  filter(species %in% c("Pachygrapsus_marmoratus", "Magallana_gigas", "Littorina_littorea", "Actinia_equina"))
+
+# Group values by batch, Species, tissues
+# Then, calculate the mean value and standard deviation for each group
+
+data_grouped <- data_filtered %>%
+  group_by(batch, species, tissues) %>%
+  summarise(mean_value = mean(MDA, na.rm = TRUE), 
+            sd_value = sd(MDA, na.rm = TRUE), 
+            .groups = "drop")
+
+# Normalize mean_value and sd_value between 0 and 1 grouped by species.
+data_grouped <- data_grouped %>%
+  group_by(species) %>%
+  mutate(normalized_value = (mean_value - min(mean_value, na.rm = TRUE)) / 
+           (max(mean_value, na.rm = TRUE) - min(mean_value, na.rm = TRUE)),
+         normalized_sd = (sd_value - min(sd_value, na.rm = TRUE)) / 
+           (max(sd_value, na.rm = TRUE) - min(sd_value, na.rm = TRUE))) %>%
+  ungroup()
+
+# Perform Welch's t-test for each concentration against the control
+test_results <- data %>%
+  filter(batch != "ctrl") %>%
+  group_by(batch, species, tissues) %>%
+  summarise(test_result = if(n() >= 2) list(tidy(t.test(MDA, 
+                                                        data[data$batch == "ctrl" & 
+                                                               data$species == species & 
+                                                               data$tissues == tissues, "MDA"], 
+                                                        alternative = "two.sided"))) else NA, 
+            .groups = "drop") %>%
+  unnest(test_result)
+
+# Join the datasets
+data_final <- left_join(data_grouped, test_results, by = c("batch", "species", "tissues"))
+
+# Function to convert p-values to asterisks
+p_to_star <- function(p) {
+  if (is.na(p)) return("")
+  if (p < .001) return("***")
+  if (p < .01) return("**")
+  if (p < .05) return("*")
+  return("ns")
+}
+
+# Apply the function to the p-values
+data_final <- data_final %>%
+  mutate(stars = sapply(p.value, p_to_star))
+
+# Count the number of observations for each combination of species, tissue, batch
+data_counts <- data %>%
+  group_by(species, tissues, batch) %>%
+  summarise(counts = n(), .groups = "drop")
+
+# Define the colors
+batch_colors <- c("ctrl" = "#C6B39B", "5ug/L" = "#8c6e47", "10ug/L" = "#4a3b28")
+data_final$batch <- factor(data_final$batch, levels=c("ctrl", "5ug/L", "10ug/L"))
+
+# New facet label names for species variable
+supp.labs <- c("Pachygrapsus marmoratus", "Magallana gigas", "Littorina littorea", "Actinia equina")
+names(supp.labs) <- c("Pachygrapsus_marmoratus", "Magallana_gigas", "Littorina_littorea", "Actinia_equina")
+
+# Create the named vector for corrected tissue names
+corrected_tissue_names <- c("gills" = "Gills", "digestive_tract" = "Digestive Tract", "full_body" = "Full Body")
+
+# Create the plot
+mda_plot <- ggplot(data_final, aes(x = batch, y = normalized_value, fill = factor(batch, levels=c("ctrl", "5ug/L", "10ug/L")))) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = normalized_value - normalized_sd, ymax = normalized_value + normalized_sd), width = 0.2, position = position_dodge(0.9)) +
+  geom_text(aes(y = normalized_value + normalized_sd + 0.1, label = stars), vjust = 0.5, position = position_dodge(0.9)) +
+  scale_fill_manual(values = batch_colors, name = "Batch", labels = c("Control", "5 µg/L", "10 µg/L")) +
+  scale_x_discrete(labels = c("ctrl" = "Control", "5ug/L" = "5 µg/L", "10ug/L" = "10 µg/L")) +
+  coord_cartesian(ylim = c(0, 2.1)) +
+  facet_grid(species ~ tissues, labeller = labeller(
+    species = as_labeller(supp.labs),
+    tissues = as_labeller(corrected_tissue_names)  # Use the corrected tissue names here
+  )) +
+  labs(fill = "Batch", y = "Normalized activity", x = "Caffeine concentration (µg)") + # Update the y-axis label here
+  theme_minimal() +
+  theme(axis.title = element_text(face = "plain"),
+        axis.text.y = element_text(face = "italic"),
+        strip.text = element_text(face = "italic"))
+
+
+# Select the necessary columns and print the table
+data_final %>%
+  filter(!(batch == "ctrl" & is.na(p.value))) %>%
+  select(species, batch, tissues, mean_value, sd_value, p.value) %>%
+  kable(format = "markdown")
+```
+
+```{r mda_plot, fig.width=10, fig.height=12}
+# Display the plot
+print(mda_plot)
+```
+
+```{=latex}
+\newpage
+```
+## Superoxide Dismutase (SOD.csv)
+
+```{r sod, echo=FALSE, warning=FALSE, show_col_types=FALSE}
+
+# Read the dataset
+data <- read_csv("SOD.csv")
+
+data_filtered <- data %>%
+  filter(species %in% c("Pachygrapsus_marmoratus", "Magallana_gigas", "Littorina_littorea", "Actinia_equina"))
+
+# Group values by batch, Species, tissues
+# Then, calculate the mean value and standard deviation for each group
+
+data_grouped <- data_filtered %>%
+  group_by(batch, species, tissues) %>%
+  summarise(mean_value = mean(SOD, na.rm = TRUE), 
+            sd_value = sd(SOD, na.rm = TRUE), 
+            .groups = "drop")
+
+# Normalize mean_value and sd_value between 0 and 1 grouped by species.
+data_grouped <- data_grouped %>%
+  group_by(species) %>%
+  mutate(normalized_value = (mean_value - min(mean_value, na.rm = TRUE)) / 
+           (max(mean_value, na.rm = TRUE) - min(mean_value, na.rm = TRUE)),
+         normalized_sd = (sd_value - min(sd_value, na.rm = TRUE)) / 
+           (max(sd_value, na.rm = TRUE) - min(sd_value, na.rm = TRUE))) %>%
+  ungroup()
+
+# Perform Welch's t-test for each concentration against the control
+test_results <- data %>%
+  filter(batch != "ctrl") %>%
+  group_by(batch, species, tissues) %>%
+  summarise(test_result = if(n() >= 2) list(tidy(t.test(SOD, 
+                                                        data[data$batch == "ctrl" & 
+                                                               data$species == species & 
+                                                               data$tissues == tissues, "SOD"], 
+                                                        alternative = "two.sided"))) else NA, 
+            .groups = "drop") %>%
+  unnest(test_result)
+
+# Join the datasets
+data_final <- left_join(data_grouped, test_results, by = c("batch", "species", "tissues"))
+
+# Function to convert p-values to asterisks
+p_to_star <- function(p) {
+  if (is.na(p)) return("")
+  if (p < .001) return("***")
+  if (p < .01) return("**")
+  if (p < .05) return("*")
+  return("ns")
+}
+
+# Apply the function to the p-values
+data_final <- data_final %>%
+  mutate(stars = sapply(p.value, p_to_star))
+
+# Count the number of observations for each combination of species, tissue, batch
+data_counts <- data %>%
+  group_by(species, tissues, batch) %>%
+  summarise(counts = n(), .groups = "drop")
+
+# Define the colors
+batch_colors <- c("ctrl" = "#C6B39B", "5ug/L" = "#8c6e47", "10ug/L" = "#4a3b28")
+data_final$batch <- factor(data_final$batch, levels=c("ctrl", "5ug/L", "10ug/L"))
+
+# New facet label names for species variable
+supp.labs <- c("Pachygrapsus marmoratus", "Magallana gigas", "Littorina littorea", "Actinia equina")
+names(supp.labs) <- c("Pachygrapsus_marmoratus", "Magallana_gigas", "Littorina_littorea", "Actinia_equina")
+
+# Create the named vector for corrected tissue names
+corrected_tissue_names <- c("gills" = "Gills", "digestive_tract" = "Digestive Tract", "full_body" = "Full Body")
+
+# Create the plot
+sod_plot <- ggplot(data_final, aes(x = batch, y = normalized_value, fill = factor(batch, levels=c("ctrl", "5ug/L", "10ug/L")))) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = normalized_value - normalized_sd, ymax = normalized_value + normalized_sd), width = 0.2, position = position_dodge(0.9)) +
+  geom_text(aes(y = normalized_value + normalized_sd + 0.1, label = stars), vjust = 0.5, position = position_dodge(0.9)) +
+  scale_fill_manual(values = batch_colors, name = "Batch", labels = c("Control", "5 µg/L", "10 µg/L")) +
+  scale_x_discrete(labels = c("ctrl" = "Control", "5ug/L" = "5 µg/L", "10ug/L" = "10 µg/L")) +
+  coord_cartesian(ylim = c(0, 2.1)) +
+  facet_grid(species ~ tissues, labeller = labeller(
+    species = as_labeller(supp.labs),
+    tissues = as_labeller(corrected_tissue_names)  # Use the corrected tissue names here
+  )) +
+  labs(fill = "Batch", y = "Normalized activity", x = "Caffeine concentration (µg)") + # Update the y-axis label here
+  theme_minimal() +
+  theme(axis.title = element_text(face = "plain"),
+        axis.text.y = element_text(face = "italic"),
+        strip.text = element_text(face = "italic"))
+
+
+# Select the necessary columns and print the table
+data_final %>%
+  filter(!(batch == "ctrl" & is.na(p.value))) %>%
+  select(species, batch, tissues, mean_value, sd_value, p.value) %>%
+  kable(format = "markdown")
+```
+
+```{r sod_plot, fig.width=10, fig.height=12}
+# Display the plot
+print(sod_plot)
+```
+
+```{=latex}
+\newpage
+```
+
+## Glutathion peroxydase (GPX.csv)
+
+```{r gpx, echo=FALSE, warning=FALSE, show_col_types=FALSE}
+# Read the dataset
+data <- read_csv("GPX.csv")
+
+data_filtered <- data %>%
+  filter(species %in% c("Pachygrapsus_marmoratus", "Magallana_gigas", "Littorina_littorea", "Actinia_equina"))
+
+# Group values by batch, Species, tissues
+# Then, calculate the mean value and standard deviation for each group
+
+data_grouped <- data_filtered %>%
+  group_by(batch, species, tissues) %>%
+  summarise(mean_value = mean(GPX, na.rm = TRUE), 
+            sd_value = sd(GPX, na.rm = TRUE), 
+            .groups = "drop")
+
+# Normalize mean_value and sd_value between 0 and 1 grouped by species.
+data_grouped <- data_grouped %>%
+  group_by(species) %>%
+  mutate(normalized_value = (mean_value - min(mean_value, na.rm = TRUE)) / 
+           (max(mean_value, na.rm = TRUE) - min(mean_value, na.rm = TRUE)),
+         normalized_sd = (sd_value - min(sd_value, na.rm = TRUE)) / 
+           (max(sd_value, na.rm = TRUE) - min(sd_value, na.rm = TRUE))) %>%
+  ungroup()
+
+# Perform Welch's t-test for each concentration against the control
+test_results <- data %>%
+  filter(batch != "ctrl") %>%
+  group_by(batch, species, tissues) %>%
+  summarise(test_result = if(n() >= 2 && 
+                             nrow(data[data$batch == "ctrl" & 
+                                        data$species == species & 
+                                        data$tissues == tissues,]) >= 2) 
+                            list(tidy(t.test(GPX, 
+                                             data[data$batch == "ctrl" & 
+                                                  data$species == species & 
+                                                  data$tissues == tissues, "GPX"], 
+                                             alternative = "two.sided"))) else NA, 
+            .groups = "drop") %>%
+  unnest(test_result)
+
+# Join the datasets
+data_final <- left_join(data_grouped, test_results, by = c("batch", "species", "tissues"))
+
+# Function to convert p-values to asterisks
+p_to_star <- function(p) {
+  if (is.na(p)) return("")
+  if (p < .001) return("***")
+  if (p < .01) return("**")
+  if (p < .05) return("*")
+  return("ns")
+}
+
+# Apply the function to the p-values
+data_final <- data_final %>%
+  mutate(stars = sapply(p.value, p_to_star))
+
+# Count the number of observations for each combination of species, tissue, batch
+data_counts <- data %>%
+  group_by(species, tissues, batch) %>%
+  summarise(counts = n(), .groups = "drop")
+
+# Define the colors
+batch_colors <- c("ctrl" = "#C6B39B", "5ug/L" = "#8c6e47", "10ug/L" = "#4a3b28")
+data_final$batch <- factor(data_final$batch, levels=c("ctrl", "5ug/L", "10ug/L"))
+
+# New facet label names for species variable
+supp.labs <- c("Pachygrapsus marmoratus", "Magallana gigas", "Littorina littorea", "Actinia equina")
+names(supp.labs) <- c("Pachygrapsus_marmoratus", "Magallana_gigas", "Littorina_littorea", "Actinia_equina")
+
+# Create the named vector for corrected tissue names
+corrected_tissue_names <- c("gills" = "Gills", "digestive_tract" = "Digestive Tract", "full_body" = "Full Body")
+
+# Create the plot
+gpx_plot <- ggplot(data_final, aes(x = batch, y = normalized_value, fill = factor(batch, levels=c("ctrl", "5ug/L", "10ug/L")))) + 
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = normalized_value - normalized_sd, ymax = normalized_value + normalized_sd), width = 0.2, position = position_dodge(0.9)) +
+  geom_text(aes(y = normalized_value + normalized_sd + 0.1, label = stars), vjust = 0.5, position = position_dodge(0.9)) +
+  scale_fill_manual(values = batch_colors, name = "Batch", labels = c("Control", "5 µg/L", "10 µg/L")) +
+  scale_x_discrete(labels = c("ctrl" = "Control", "5ug/L" = "5 µg/L", "10ug/L" = "10 µg/L")) +
+  coord_cartesian(ylim = c(0, 2.1)) +
+  facet_grid(species ~ tissues, labeller = labeller(
+    species = as_labeller(supp.labs),
+    tissues = as_labeller(corrected_tissue_names)  # Use the corrected tissue names here
+  )) +
+  labs(fill = "Batch", y = "Normalized activity", x = "Caffeine concentration (µg)") + # Update the y-axis label here
+  theme_minimal() +
+  theme(axis.title = element_text(face = "plain"),
+        axis.text.y = element_text(face = "italic"),
+        strip.text = element_text(face = "italic"))
+
+  
+
+# Select the necessary columns and print the table
+data_final %>%
+  filter(!(batch == "ctrl" & is.na(p.value))) %>%
+  select(species, batch, tissues, mean_value, sd_value, p.value) %>%
+  kable(format = "markdown")
+```
+
+```{r gpx_plot, fig.width=10, fig.height=12}
+# Display the plot
+print(gpx_plot)
+```
+
+```{=latex}
+\newpage
+```
+
+## Acetylcholinesterase
+
+```{r ache, echo=FALSE, warning=FALSE, show_col_types=FALSE}
+# Read the dataset
+data <- read_csv("AChe_Tidy.csv")
+
+data_filtered <- data %>%
+  filter(Species %in% c("Pachygrapsus_marmoratus", "Magallana_gigas", "Litttorina_littorea", "Actinia_equina"))
+
+# Group values by batch, Species, tissues
+# Then, calculate the mean value and standard deviation for each group
+
+data_grouped <- data_filtered %>%
+  group_by(batch, Species, tissues, time) %>%
+  summarise(mean_value = mean(value, na.rm = TRUE), 
+            sd_value = sd(value, na.rm = TRUE), 
+            .groups = "drop")
+
+# Normalize mean_value and sd_value between 0 and 1 grouped by species.
+data_grouped <- data_grouped %>%
+  group_by(Species) %>%
+  mutate(normalized_value = (mean_value - min(mean_value, na.rm = TRUE)) / 
+           (max(mean_value, na.rm = TRUE) - min(mean_value, na.rm = TRUE)),
+         normalized_sd = (sd_value - min(sd_value, na.rm = TRUE)) / 
+           (max(sd_value, na.rm = TRUE) - min(sd_value, na.rm = TRUE))) %>%
+  ungroup()
+
+# Perform Welch's t-test for each time interval and concentration against the control
+test_results <- data %>%
+  filter(batch != "ctrl") %>%
+  group_by(time, batch, Species, tissues) %>%
+  summarise(test_result = if(n() >= 2) list(tidy(t.test(value, 
+                                                        data[data$batch == "ctrl" & 
+                                                               data$time == time & 
+                                                               data$Species == Species & 
+                                                               data$tissues == tissues, "value"], 
+                                                        alternative = "two.sided"))) else NA, 
+            .groups = "drop") %>%
+  unnest(test_result)
+
+# Join the datasets
+data_final <- left_join(data_grouped, test_results, by = c("time", "batch", "Species", "tissues"))
+
+# Function to convert p-values to asterisks
+p_to_star <- function(p) {
+  if (is.na(p)) return("")
+  if (p < .001) return("***")
+  if (p < .01) return("**")
+  if (p < .05) return("*")
+  return("ns")
+}
+
+# Apply the function to the p-values
+data_final <- data_final %>%
+  mutate(stars = sapply(p.value, p_to_star))
+
+# Count the number of observations for each combination of species, tissue, batch, and time
+data_counts <- data %>%
+  group_by(Species, tissues, batch, time) %>%
+  summarise(counts = n(), .groups = "drop")
+
+# Define the colors
+batch_colors <- c("ctrl" = "#C6B39B", "5ug/L" = "#8c6e47", "10ug/L" = "#4a3b28")
+data_final$batch <- factor(data_final$batch, levels=c("ctrl", "5ug/L", "10ug/L"))
+
+# New facet label names for species variable
+supp.labs <- c("Pachygrapsus marmoratus","Littorina littorea", "Magallana gigas", "Actinia equina")
+names(supp.labs) <- c("Pachygrapsus_marmoratus", "Litttorina_littorea", "Magallana_gigas" , "Actinia_equina")
+
+# Create the named vector for corrected tissue names
+corrected_tissue_names <- c("gills" = "Gills", "digestive_tract" = "Digestive Tract", "full_body" = "Full Body")
+
+# Assuming `data_final` has all the necessary columns
+
+ache_plot <- ggplot(data_final, aes(x = time, y = normalized_value, fill = factor(batch, levels=c("ctrl", "5ug/L", "10ug/L")))) +
+  geom_bar(stat = "identity", position = "dodge") +
+  geom_errorbar(aes(ymin = normalized_value - normalized_sd, ymax = normalized_value + normalized_sd), 
+                width = 0.2, 
+                position = position_dodge(0.9)) +
+  geom_text(aes(y = normalized_value + normalized_sd + 0.1, label = stars), 
+            vjust = 0.5, 
+            position = position_dodge(0.9)) +
+  scale_fill_manual(values = batch_colors, 
+                    name = "Batch", 
+                    labels = c("Control", "5 μg/L", "10 μg/L")) +
+  coord_cartesian(ylim = c(0, 1.5)) +
+  xlab("Time interval") +
+  ylab("Normalized activity") +
+  facet_grid(Species ~ tissues, labeller = labeller(
+    Species = as_labeller(supp.labs),
+    tissues = as_labeller(corrected_tissue_names)  # Use the corrected tissue names here
+  )) +
+  theme_minimal() +
+  theme(axis.title = element_text(face = "plain"),
+        axis.text.y = element_text(face = "italic"),
+        strip.text = element_text(face = "italic"))
+
+# Select the necessary columns and print the table
+data_final %>%
+  filter(!(batch == "ctrl" & is.na(p.value))) %>%
+  select(Species, time, batch, tissues, mean_value, sd_value, p.value) %>%
+  kable(format = "markdown")
+
+```
+
+```{r ache_plot, fig.width=10, fig.height=12}
+        
+# Display the plot
+print(ache_plot)
+
+```
+
+```{=latex}
+\newpage
+```
+
+# Sample Locations - GPS Coordinates
+
+```{r}
+
+# Data
+species_data <- data.frame(
+  species = c('Pachygrapsus_marmoratus', 'Actinia_equina', 'Littorina_littorea', 'Magallana_gigas'),
+  Site = c('Noirmoutier (pl vieil)', 'Donville_sur_mer', 'Baie_de_Seine', 'Oleron'),
+  Lattitude = c(47.025048, 48.852602, 49.28930694358334, 45.95871920000627),
+  Longitude = c(-2.249286, -1.583802, -0.17887356917140615, -1.2413988073594615)
+)
+
+# Print the table in LaTeX format using kable
+kable(species_data, format = "markdown", booktabs = TRUE)
+```
